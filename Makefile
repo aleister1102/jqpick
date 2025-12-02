@@ -151,6 +151,24 @@ release: ## Full release workflow (usage: make release TAG=v1.0.0)
 	@echo "⏳ Waiting for GitHub Actions to complete..."
 	@echo "✅ Release workflow triggered. Check GitHub for build status."
 
+release-complete: ## Trigger complete multi-platform release (usage: make release-complete TAG=v1.0.0)
+	@if [ -z "$(TAG)" ]; then echo "❌ Please provide TAG=value (e.g., TAG=v1.0.0)"; exit 1; fi
+	@echo "🌍 Starting complete multi-platform release for $(TAG)..."
+	@$(MAKE) test
+	@echo "🏷️  Creating tag $(TAG)..."
+	@git tag -a $(TAG) -m "Complete multi-platform release $(TAG)"
+	@git push origin $(TAG)
+	@echo "✅ Complete release workflow triggered for all platforms and architectures!"
+	@echo "📊 This will build binaries for:"
+	@echo "   🐧 Linux: amd64, arm64, 386, arm, ppc64le, s390x, riscv64, mips64, mips64le"
+	@echo "   🍎 macOS: amd64, arm64"
+	@echo "   🪟 Windows: amd64, arm64, 386"
+	@echo "   🐱 BSD: FreeBSD, OpenBSD, NetBSD (amd64, arm64, 386)"
+	@echo "   ☀️ Other: Solaris, AIX, Android"
+	@echo ""
+	@echo "⏳ Check GitHub Actions for build progress:"
+	@echo "   https://github.com/$(GITHUB_OWNER)/$(GITHUB_REPO)/actions"
+
 # CI/CD targets (used by GitHub Actions)
 ci-build: ## Build for CI (sets version from environment)
 	@echo "🔨 CI build - Version: $(VERSION)"
