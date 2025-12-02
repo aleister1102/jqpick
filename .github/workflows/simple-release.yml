@@ -1,0 +1,96 @@
+name: Simple Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Build Linux binary
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          VERSION="${{ github.ref_name }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-X main.Version=$VERSION -X main.Commit=${{ github.sha }} -X main.Date=$DATE -s -w"
+          go build -ldflags "$LDFLAGS" -o jqpick-linux-amd64 .
+
+      - name: Build macOS binary
+        env:
+          GOOS: darwin
+          GOARCH: amd64
+        run: |
+          VERSION="${{ github.ref_name }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-X main.Version=$VERSION -X main.Commit=${{ github.sha }} -X main.Date=$DATE -s -w"
+          go build -ldflags "$LDFLAGS" -o jqpick-darwin-amd64 .
+
+      - name: Build Windows binary
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          VERSION="${{ github.ref_name }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-X main.Version=$VERSION -X main.Commit=${{ github.sha }} -X main.Date=$DATE -s -w"
+          go build -ldflags "$LDFLAGS" -o jqpick-windows-amd64.exe .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "JQPick ${{ github.ref_name }}"
+          body: |
+            JQPick ${{ github.ref_name }} - Interactive JSON Explorer and JQ Query Builder
+            
+            ## Installation
+            
+            Download the appropriate binary for your platform:
+            
+            ### Linux
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/jqpick-linux-amd64
+            chmod +x jqpick-linux-amd64
+            sudo mv jqpick-linux-amd64 /usr/local/bin/jqpick
+            ```
+            
+            ### macOS
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/jqpick-darwin-amd64
+            chmod +x jqpick-darwin-amd64
+            sudo mv jqpick-darwin-amd64 /usr/local/bin/jqpick
+            ```
+            
+            ### Windows
+            Download the .exe file and add it to your PATH.
+            
+            ## Usage
+            
+            ```bash
+            cat file.json | jqpick
+            ```
+          files: |
+            jqpick-linux-amd64
+            jqpick-darwin-amd64
+            jqpick-windows-amd64.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
