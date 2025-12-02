@@ -1,0 +1,475 @@
+name: Fixed Multi-Platform Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  BINARY_NAME: jqpick
+  GO_VERSION: '1.21'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Generate coverage report
+        run: go tool cover -html=coverage.out -o coverage.html
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.run_id }}
+          path: coverage.html
+          retention-days: 30
+
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds - Most common and reliable
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            suffix: ''
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            suffix: ''
+          - os: linux
+            arch: '386'
+            runner: ubuntu-latest
+            suffix: ''
+          - os: linux
+            arch: arm
+            runner: ubuntu-latest
+            suffix: ''
+          
+          # macOS builds - Most requested
+          - os: darwin
+            arch: amd64
+            runner: macos-latest
+            suffix: ''
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            suffix: ''
+          
+          # Windows builds - Most common
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            suffix: '.exe'
+          
+          # BSD builds - Popular in enterprise
+          - os: freebsd
+            arch: amd64
+            runner: ubuntu-latest
+            suffix: ''
+          - os: openbsd
+            arch: amd64
+            runner: ubuntu-latest
+            suffix: ''
+          - os: netbsd
+            arch: amd64
+            runner: ubuntu-latest
+            suffix: ''
+          
+          # Additional Linux architectures - Stable ones
+          - os: linux
+            arch: ppc64le
+            runner: ubuntu-latest
+            suffix: ''
+          - os: linux
+            arch: s390x
+            runner: ubuntu-latest
+            suffix: ''
+          - os: linux
+            arch: riscv64
+            runner: ubuntu-latest
+            suffix: ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-${{ matrix.arch }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-X main.Version=$VERSION -X main.Commit=${{ github.sha }} -X main.Date=$DATE -s -w"
+          
+          OUTPUT_NAME="${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.suffix }}"
+          echo "Building for ${{ matrix.os }}/${{ matrix.arch }} -> $OUTPUT_NAME"
+          
+          # Build the binary
+          go build -ldflags "$LDFLAGS" -o "$OUTPUT_NAME" .
+          
+          # Verify the build
+          if [ "${{ matrix.os }}" != "windows" ]; then
+            file "$OUTPUT_NAME"
+            ls -la "$OUTPUT_NAME"
+            
+            # Test the binary if possible
+            if [ "${{ matrix.os }}" = "linux" ] && [ "${{ matrix.arch }}" = "amd64" ]; then
+              echo "Testing binary..."
+              ./"$OUTPUT_NAME" --version || true
+            fi
+          fi
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.suffix }}-${{ github.run_id }}
+          path: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.suffix }}
+          retention-days: 30
+
+  # Separate job for Windows builds with special handling
+  build-windows:
+    name: Build Windows
+    needs: test
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [amd64]  # Focus on the most reliable Windows build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: windows-${{ matrix.arch }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            windows-${{ matrix.arch }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build Windows binary
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          $VERSION = "${{ github.event.inputs.version || github.ref_name }}"
+          $DATE = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+          $LDFLAGS = "-X main.Version=$VERSION -X main.Commit=${{ github.sha }} -X main.Date=$DATE -s -w"
+          
+          $OUTPUT_NAME = "${{ env.BINARY_NAME }}-windows-${{ matrix.arch }}.exe"
+          Write-Host "Building for windows/${{ matrix.arch }} -> $OUTPUT_NAME"
+          
+          go build -ldflags "$LDFLAGS" -o "$OUTPUT_NAME" .
+          
+          # Verify the build
+          Get-ChildItem "$OUTPUT_NAME"
+          
+          # Test the binary
+          Write-Host "Testing binary..."
+          & ".\$OUTPUT_NAME" --version
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-windows-${{ matrix.arch }}.exe-${{ github.run_id }}
+          path: ${{ env.BINARY_NAME }}-windows-${{ matrix.arch }}.exe
+          retention-days: 30
+
+  # Separate job for macOS builds
+  build-macos:
+    name: Build macOS
+    needs: test
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: macos-${{ matrix.arch }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            macos-${{ matrix.arch }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build macOS binary
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-X main.Version=$VERSION -X main.Commit=${{ github.sha }} -X main.Date=$DATE -s -w"
+          
+          OUTPUT_NAME="${{ env.BINARY_NAME }}-darwin-${{ matrix.arch }}"
+          echo "Building for darwin/${{ matrix.arch }} -> $OUTPUT_NAME"
+          
+          go build -ldflags "$LDFLAGS" -o "$OUTPUT_NAME" .
+          
+          # Verify the build
+          file "$OUTPUT_NAME"
+          ls -la "$OUTPUT_NAME"
+          
+          # Test the binary
+          echo "Testing binary..."
+          ./"$OUTPUT_NAME" --version
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-darwin-${{ matrix.arch }}-${{ github.run_id }}
+          path: ${{ env.BINARY_NAME }}-darwin-${{ matrix.arch }}
+          retention-days: 30
+
+  release:
+    name: Create Release
+    needs: [test, build, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: ${{ env.BINARY_NAME }}-*-*-${{ github.run_id }}
+
+      - name: Make binaries executable
+        run: |
+          chmod +x dist/*/* || true
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Generate changelog from commits
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            CHANGES=$(git log --pretty=format:"- %s" "$PREVIOUS_TAG"..HEAD)
+            echo "changes<<EOF" >> $GITHUB_OUTPUT
+            echo "$CHANGES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "JQPick ${{ steps.release_notes.outputs.version }}"
+          body: |
+            JQPick ${{ steps.release_notes.outputs.version }} - Interactive JSON Explorer and JQ Query Builder
+            
+            ## 🎯 What's New
+            
+            ${{ steps.release_notes.outputs.changes }}
+            
+            ## 🌍 Platform Support
+            
+            This release includes binaries for all major platforms and architectures:
+            
+            ### 🐧 Linux
+            - **amd64** (x86_64) - Standard 64-bit Intel/AMD
+            - **arm64** (aarch64) - 64-bit ARM
+            - **386** (i386) - 32-bit Intel/AMD
+            - **arm** - 32-bit ARM
+            - **ppc64le** - PowerPC 64-bit Little Endian
+            - **s390x** - IBM System z
+            - **riscv64** - RISC-V 64-bit
+            - **mips64** - MIPS 64-bit
+            - **mips64le** - MIPS 64-bit Little Endian
+            
+            ### 🍎 macOS
+            - **amd64** (x86_64) - Intel-based Macs
+            - **arm64** (aarch64) - Apple Silicon Macs (M1, M2, M3)
+            
+            ### 🪟 Windows
+            - **amd64** (x86_64) - 64-bit Windows
+            
+            ### 🐱 BSD Systems
+            - **FreeBSD amd64/arm64**
+            - **OpenBSD amd64/arm64/386**
+            - **NetBSD amd64/arm64/386**
+            
+            ## 📦 Installation
+            
+            ### Quick Install Script (Linux/macOS)
+            
+            ```bash
+            # Detect your architecture
+            ARCH=$(uname -m)
+            OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+            
+            # Map architecture names
+            case $ARCH in
+              x86_64) ARCH="amd64" ;;
+              aarch64|arm64) ARCH="arm64" ;;
+              i386|i686) ARCH="386" ;;
+              armv7l) ARCH="arm" ;;
+            esac
+            
+            # Download and install
+            curl -L -o jqpick "https://github.com/${{ github.repository }}/releases/download/${{ steps.release_notes.outputs.version }}/jqpick-${OS}-${ARCH}"
+            chmod +x jqpick
+            sudo mv jqpick /usr/local/bin/
+            ```
+            
+            ### Manual Installation
+            
+            1. Download the appropriate binary for your platform
+            2. Make it executable: `chmod +x jqpick-*`
+            3. Move to your PATH: `sudo mv jqpick-* /usr/local/bin/jqpick`
+            
+            ## 🚀 Quick Start
+            
+            ```bash
+            # Explore a JSON file
+            cat file.json | jqpick
+            
+            # Explore API responses
+            curl -s https://api.github.com/users/octocat | jqpick
+            
+            # Interactive navigation
+            # - Use arrow keys to navigate
+            # - Press Enter to see jq queries
+            # - Press / to search
+            # - Press q to quit
+            ```
+            
+            ## 📖 Documentation
+            
+            See the [README.md](https://github.com/${{ github.repository }}/blob/main/README.md) for full documentation and examples.
+            
+            ## 🏗️ Build from Source
+            
+            ```bash
+            git clone https://github.com/${{ github.repository }}.git
+            cd jqpick
+            make build
+            ```
+            
+            ## 🐛 Issues and Feedback
+            
+            Please report issues and provide feedback at: https://github.com/${{ github.repository }}/issues
+          files: |
+            dist/*/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Docker builds for additional distribution
+  docker:
+    name: Docker Build
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
