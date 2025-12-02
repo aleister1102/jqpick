@@ -1,0 +1,39 @@
+# Binaries
+jqpick
+*.exe
+dist/
+build/
+
+# Test files
+test.json
+sample_data.json
+coverage.html
+coverage.out
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Documentation
+README.md
+demo.sh
+
+# Development files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

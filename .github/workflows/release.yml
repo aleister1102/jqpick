@@ -1,0 +1,306 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0, v2.1.3, etc.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Generate coverage report
+        run: go tool cover -html=coverage.out -o coverage.html
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage.html
+
+  build:
+    name: Build
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+          # macOS builds
+          - os: darwin
+            arch: amd64
+            runner: macos-latest
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+          # Windows builds
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+          - os: windows
+            arch: arm64
+            runner: windows-latest
+
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          $VERSION = if ("${{ github.event.inputs.version }}") { "${{ github.event.inputs.version }}" } else { "${{ github.ref_name }}" }
+          $LDFLAGS = "-X main.Version=$VERSION -X main.Commit=${{ github.sha }} -X main.Date=$(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ') -s -w"
+          
+          if ("${{ matrix.os }}" -eq "windows") {
+            go build -ldflags $LDFLAGS -o "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.exe" .
+          } else {
+            go build -ldflags $LDFLAGS -o "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}" .
+          }
+        shell: pwsh
+
+      - name: Upload binary artifact (Unix)
+        if: matrix.os != 'windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Upload binary artifact (Windows)
+        if: matrix.os == 'windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.exe
+          path: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.exe
+
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: dist
+
+      - name: Make binaries executable
+        run: |
+          chmod +x dist/*/* || true
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Generate changelog from commits
+          if [[ "$VERSION" != "dev" ]]; then
+            PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [[ -n "$PREVIOUS_TAG" ]]; then
+              CHANGES=$(git log --pretty=format:"- %s" "$PREVIOUS_TAG"..HEAD)
+              echo "changes<<EOF" >> $GITHUB_OUTPUT
+              echo "$CHANGES" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "JQPick ${{ steps.release_notes.outputs.version }}"
+          body: |
+            JQPick ${{ steps.release_notes.outputs.version }} - Interactive JSON Explorer and JQ Query Builder
+            
+            ## 🎯 What's New
+            
+            ${{ steps.release_notes.outputs.changes }}
+            
+            ## 📦 Installation
+            
+            Download the appropriate binary for your platform and make it executable:
+            
+            ### Linux
+            
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.release_notes.outputs.version }}/jqpick-linux-amd64
+            chmod +x jqpick-linux-amd64
+            sudo mv jqpick-linux-amd64 /usr/local/bin/jqpick
+            ```
+            
+            ### macOS (Intel)
+            
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.release_notes.outputs.version }}/jqpick-darwin-amd64
+            chmod +x jqpick-darwin-amd64
+            sudo mv jqpick-darwin-amd64 /usr/local/bin/jqpick
+            ```
+            
+            ### macOS (Apple Silicon)
+            
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.release_notes.outputs.version }}/jqpick-darwin-arm64
+            chmod +x jqpick-darwin-arm64
+            sudo mv jqpick-darwin-arm64 /usr/local/bin/jqpick
+            ```
+            
+            ### Windows
+            
+            Download the `.exe` file and add it to your PATH.
+            
+            ## 🚀 Quick Start
+            
+            ```bash
+            # Explore a JSON file
+            cat file.json | jqpick
+            
+            # Explore API responses
+            curl -s https://api.github.com/users/octocat | jqpick
+            
+            # Interactive navigation
+            # - Use arrow keys to navigate
+            # - Press Enter to see jq queries
+            # - Press / to search
+            # - Press q to quit
+            ```
+            
+            ## 📖 Documentation
+            
+            See the [README.md](https://github.com/${{ github.repository }}/blob/main/README.md) for full documentation and examples.
+            
+            ## 🏗️ Build from Source
+            
+            ```bash
+            git clone https://github.com/${{ github.repository }}.git
+            cd jqpick
+            make build
+            ```
+            
+            ## 🐛 Issues and Feedback
+            
+            Please report issues and provide feedback at: https://github.com/${{ github.repository }}/issues
+          files: |
+            dist/*/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Docker Build
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  homebrew:
+    name: Update Homebrew Formula
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew formula
+        uses: peter-evans/homebrew-repository-dispatcher@v1
+        with:
+          token: ${{ secrets.HOMEBREW_TOKEN }}
+          repository: ${{ github.actor }}/homebrew-tap
+          event-type: update-formula
+          client-payload: '{"formula": "jqpick", "version": "${{ github.ref_name }}", "repository": "${{ github.repository }}", "sha": "${{ github.sha }}"}'
