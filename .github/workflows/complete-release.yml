@@ -29,7 +29,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -46,7 +46,7 @@ jobs:
         run: go tool cover -html=coverage.out -o coverage.html
 
       - name: Upload coverage reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.html
@@ -222,7 +222,7 @@ jobs:
           fi
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.suffix }}
           path: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.suffix }}
@@ -240,7 +240,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: dist
 
