@@ -125,5 +125,5 @@ Examples:
   cat api.json | jqpick
   echo '{"users":[{"name":"John"}]}' | jqpick
   curl -s https://api.example.com/data | jqpick
-`)
+`, Version)
 }
