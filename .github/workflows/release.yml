@@ -11,6 +11,10 @@ on:
         required: true
         type: string
 
+env:
+  BINARY_NAME: jqpick
+  GO_VERSION: '1.21'
+
 permissions:
   contents: write
   packages: write
@@ -26,7 +30,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Cache Go modules
         uses: actions/cache@v3
@@ -106,15 +110,16 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
         run: |
-          $VERSION = if ("${{ github.event.inputs.version }}") { "${{ github.event.inputs.version }}" } else { "${{ github.ref_name }}" }
-          $LDFLAGS = "-X main.Version=$VERSION -X main.Commit=${{ github.sha }} -X main.Date=$(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ') -s -w"
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-X main.Version=$VERSION -X main.Commit=${{ github.sha }} -X main.Date=$DATE -s -w"
           
-          if ("${{ matrix.os }}" -eq "windows") {
-            go build -ldflags $LDFLAGS -o "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.exe" .
-          } else {
-            go build -ldflags $LDFLAGS -o "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}" .
-          }
-        shell: pwsh
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            go build -ldflags "$LDFLAGS" -o "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.exe" .
+          else
+            go build -ldflags "$LDFLAGS" -o "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}" .
+          fi
+        shell: bash
 
       - name: Upload binary artifact (Unix)
         if: matrix.os != 'windows'
