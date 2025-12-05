@@ -14,16 +14,36 @@ JQPick is an interactive Terminal User Interface (TUI) tool that helps you explo
 
 ## Installation
 
+### Quick Install (from source)
+
 ```bash
-go install github.com/user/jqpick@latest
+git clone https://github.com/quan-m-le/jqpick
+cd jqpick
+make install
 ```
 
-Or build from source:
+### Install to User Directory (no sudo)
 
 ```bash
-git clone https://github.com/user/jqpick
+git clone https://github.com/quan-m-le/jqpick
 cd jqpick
-go build -o jqpick .
+make install-local
+```
+
+### Using Go Install
+
+```bash
+go install github.com/quan-m-le/jqpick@latest
+```
+
+### Download Pre-built Binary
+
+```bash
+# Download and install automatically
+curl -sSL https://raw.githubusercontent.com/quan-m-le/jqpick/main/install.sh | bash -s -- --binary
+
+# Or download manually from GitHub Releases
+# https://github.com/quan-m-le/jqpick/releases
 ```
 
 ## Usage
@@ -136,11 +156,56 @@ Requirements:
 - Go 1.21 or later
 
 ```bash
-git clone https://github.com/user/jqpick
+git clone https://github.com/quan-m-le/jqpick
 cd jqpick
-go mod download
-go build -o jqpick .
+make build
 ```
+
+### Makefile Targets
+
+```bash
+make help           # Show all available targets
+make build          # Build for current platform
+make test           # Run tests
+make install        # Install to /usr/local/bin (requires sudo)
+make install-local  # Install to ~/.local/bin (no sudo)
+make uninstall      # Remove installed binary
+make clean          # Clean build artifacts
+make release-all    # Build for all platforms (Linux, macOS, Windows)
+```
+
+### Cross-Platform Builds
+
+```bash
+make release-linux    # Build for Linux (amd64, arm64)
+make release-mac      # Build for macOS (amd64, arm64)
+make release-windows  # Build for Windows (amd64, arm64)
+make release-all      # Build for all platforms
+```
+
+## Creating a Release
+
+Use the release script to automate GitHub releases:
+
+```bash
+# Create a new release
+./scripts/release.sh v1.0.0
+
+# Create a draft release
+./scripts/release.sh v1.0.0 --draft
+
+# Create a pre-release
+./scripts/release.sh v1.0.0 --prerelease
+```
+
+The release script will:
+1. Validate the version format
+2. Run tests
+3. Build binaries for all platforms
+4. Create checksums
+5. Create archives (tar.gz/zip)
+6. Create and push git tag
+7. Create GitHub release with assets
 
 ## Contributing
 
