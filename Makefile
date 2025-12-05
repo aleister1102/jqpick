@@ -66,14 +66,7 @@ test: ## Run tests
 	@go test -v -race -cover ./...
 	@echo "Tests passed"
 
-install: build ## Install binary to system (requires sudo)
-	@echo "Installing $(BINARY_NAME) to $(INSTALL_PATH)..."
-	@sudo install -d $(INSTALL_PATH)
-	@sudo install -m 755 $(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
-	@echo "Installation complete"
-	@echo "You can now use: cat file.json | $(BINARY_NAME)"
-
-install-local: build ## Install binary to user local bin (no sudo required)
+install: build ## Install binary to user local bin (no sudo required)
 	@echo "Installing $(BINARY_NAME) to $(LOCAL_INSTALL_PATH)..."
 	@mkdir -p $(LOCAL_INSTALL_PATH)
 	@install -m 755 $(BINARY_NAME) $(LOCAL_INSTALL_PATH)/$(BINARY_NAME)

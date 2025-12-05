@@ -38,17 +38,25 @@ type model struct {
 	searchTerm string
 	filtered   []*JSONNode
 	wrapValues bool
+	filename   string
 }
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
+	filename := "file.json"
+
+	// Parse arguments
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
 		case "--help", "-h":
 			printHelp()
 			return
 		case "--version", "-v":
 			printVersion()
 			return
+		default:
+			// Treat as filename for display
+			filename = args[i]
 		}
 	}
 
@@ -62,7 +70,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "Error: No input provided. Use: cat file.json | jqpick\n")
+		fmt.Fprintf(os.Stderr, "Error: No input provided. Use: cat file.json | jqpick [filename]\n")
 		os.Exit(1)
 	}
 
@@ -76,8 +84,9 @@ func main() {
 
 	p := tea.NewProgram(
 		model{
-			root:   root,
-			cursor: 0,
+			root:     root,
+			cursor:   0,
+			filename: filename,
 		},
 		tea.WithAltScreen(),
 	)
@@ -105,7 +114,10 @@ func printHelp() {
 Version: %s
 
 Usage:
-  cat file.json | jqpick [options]
+  cat file.json | jqpick [filename] [options]
+
+Arguments:
+  filename       Optional filename to display in examples
 
 Options:
   -h, --help     Show this help message

@@ -17,7 +17,8 @@ var (
 
 	selectedStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#7AA2F7")).
-			Foreground(lipgloss.Color("#1A1B26"))
+			Foreground(lipgloss.Color("#1A1B26")).
+			Bold(true)
 
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -35,6 +36,7 @@ var (
 	boolStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#BB9AF7"))
 	nullStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#565F89"))
 	keyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#7AA2F7"))
+	matchStyle  = lipgloss.NewStyle().Background(lipgloss.Color("#9ECE6A")).Foreground(lipgloss.Color("#1A1B26")).Bold(true)
 )
 
 type keyMap struct {
@@ -42,6 +44,8 @@ type keyMap struct {
 	Down     key.Binding
 	Left     key.Binding
 	Right    key.Binding
+	PageUp   key.Binding
+	PageDown key.Binding
 	Expand   key.Binding
 	Collapse key.Binding
 	Select   key.Binding
@@ -60,6 +64,14 @@ var keys = keyMap{
 	Down: key.NewBinding(
 		key.WithKeys("down", "j"),
 		key.WithHelp("↓/j", "move down"),
+	),
+	PageUp: key.NewBinding(
+		key.WithKeys("pgup", "ctrl+u"),
+		key.WithHelp("PgUp", "page up"),
+	),
+	PageDown: key.NewBinding(
+		key.WithKeys("pgdown", "ctrl+d"),
+		key.WithHelp("PgDn", "page down"),
 	),
 	Left: key.NewBinding(
 		key.WithKeys("left", "h"),
@@ -128,18 +140,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.searchMode = false
 				m.searchTerm = ""
+				m.updateFilteredNodes()
 			case "backspace":
 				if len(m.searchTerm) > 0 {
 					m.searchTerm = m.searchTerm[:len(m.searchTerm)-1]
 				}
+				m.updateFilteredNodes()
 			case "enter":
 				m.searchMode = false
+			case "up", "down":
+				// Allow navigation in search mode
+				if msg.String() == "up" && m.cursor > 0 {
+					m.cursor--
+				} else if msg.String() == "down" && m.cursor < len(m.filtered)-1 {
+					m.cursor++
+				}
 			default:
 				if len(msg.String()) == 1 {
 					m.searchTerm += msg.String()
+					m.updateFilteredNodes()
 				}
 			}
-			m.updateFilteredNodes()
 			return m, nil
 		}
 
@@ -154,6 +175,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			visibleNodes := m.root.getAllVisibleNodes()
 			if m.cursor < len(visibleNodes)-1 {
 				m.cursor++
+			}
+		case key.Matches(msg, keys.PageUp):
+			pageSize := m.height / 2
+			if pageSize < 1 {
+				pageSize = 10
+			}
+			m.cursor -= pageSize
+			if m.cursor < 0 {
+				m.cursor = 0
+			}
+		case key.Matches(msg, keys.PageDown):
+			visibleNodes := m.root.getAllVisibleNodes()
+			pageSize := m.height / 2
+			if pageSize < 1 {
+				pageSize = 10
+			}
+			m.cursor += pageSize
+			if m.cursor >= len(visibleNodes) {
+				m.cursor = len(visibleNodes) - 1
 			}
 		case key.Matches(msg, keys.Left):
 			visibleNodes := m.root.getAllVisibleNodes()
@@ -252,12 +292,17 @@ func (m model) View() string {
 		sections = append(sections, querySection)
 	}
 
-	// Help line with wrap indicator
-	wrapIndicator := ""
-	if m.wrapValues {
-		wrapIndicator = " [wrap: on]"
+	// Help line
+	var help string
+	if m.searchMode {
+		help = helpStyle.Render("↑/↓ navigate • Esc exit search")
+	} else {
+		wrapIndicator := ""
+		if m.wrapValues {
+			wrapIndicator = " [wrap: on]"
+		}
+		help = helpStyle.Render("Enter select • ? help • w wrap • / search • q quit" + wrapIndicator)
 	}
-	help := helpStyle.Render("Press ? for help, w to toggle wrap, q to quit" + wrapIndicator)
 	sections = append(sections, help)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
@@ -337,23 +382,43 @@ func (m model) renderNode(node *JSONNode, isSelected bool) string {
 	keyPartLen := 0
 	if node.Key != "" {
 		keyPartLen = len(keyName) + 1 // +1 for colon
-		parts = append(parts, keyStyle.Render(keyName+":"))
+		if isSelected {
+			parts = append(parts, keyName+":")
+		} else {
+			styledKey := keyName + ":"
+			if m.searchTerm != "" {
+				styledKey = m.highlightMatch(styledKey, keyStyle)
+			} else {
+				styledKey = keyStyle.Render(styledKey)
+			}
+			parts = append(parts, styledKey)
+		}
 	}
 
 	// Add value preview
 	valuePreview := node.getValuePreview()
 	var styledValue string
-	switch node.Type {
-	case "string":
-		styledValue = stringStyle.Render(valuePreview)
-	case "number":
-		styledValue = numberStyle.Render(valuePreview)
-	case "boolean":
-		styledValue = boolStyle.Render(valuePreview)
-	case "null":
-		styledValue = nullStyle.Render(valuePreview)
-	default:
+	if isSelected {
+		// No color styling when selected - let selectedStyle handle it
 		styledValue = valuePreview
+	} else {
+		// Apply highlighting if searching
+		if m.searchTerm != "" {
+			styledValue = m.highlightMatch(valuePreview, m.getStyleForType(node.Type))
+		} else {
+			switch node.Type {
+			case "string":
+				styledValue = stringStyle.Render(valuePreview)
+			case "number":
+				styledValue = numberStyle.Render(valuePreview)
+			case "boolean":
+				styledValue = boolStyle.Render(valuePreview)
+			case "null":
+				styledValue = nullStyle.Render(valuePreview)
+			default:
+				styledValue = valuePreview
+			}
+		}
 	}
 
 	if node.Key != "" {
@@ -374,6 +439,64 @@ func (m model) renderNode(node *JSONNode, isSelected bool) string {
 	}
 
 	return line
+}
+
+func (m model) getStyleForType(nodeType string) lipgloss.Style {
+	switch nodeType {
+	case "string":
+		return stringStyle
+	case "number":
+		return numberStyle
+	case "boolean":
+		return boolStyle
+	case "null":
+		return nullStyle
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+func (m model) highlightMatch(text string, baseStyle lipgloss.Style) string {
+	if m.searchTerm == "" {
+		return baseStyle.Render(text)
+	}
+
+	lower := strings.ToLower(text)
+	searchLower := strings.ToLower(m.searchTerm)
+	idx := strings.Index(lower, searchLower)
+
+	if idx == -1 {
+		return baseStyle.Render(text)
+	}
+
+	var result strings.Builder
+	lastEnd := 0
+
+	for idx != -1 {
+		// Add text before match
+		if idx > lastEnd {
+			result.WriteString(baseStyle.Render(text[lastEnd:idx]))
+		}
+		// Add highlighted match
+		matchEnd := idx + len(m.searchTerm)
+		result.WriteString(matchStyle.Render(text[idx:matchEnd]))
+		lastEnd = matchEnd
+
+		// Find next match
+		nextIdx := strings.Index(lower[lastEnd:], searchLower)
+		if nextIdx == -1 {
+			idx = -1
+		} else {
+			idx = lastEnd + nextIdx
+		}
+	}
+
+	// Add remaining text
+	if lastEnd < len(text) {
+		result.WriteString(baseStyle.Render(text[lastEnd:]))
+	}
+
+	return result.String()
 }
 
 func (m model) wrapLine(line string, value string, prefixLen int, nodeType string) string {
@@ -475,7 +598,7 @@ func (m model) renderQuerySection() string {
 		lines = append(lines, query)
 
 		// Add example usage
-		example := helpStyle.Render(fmt.Sprintf("Example: cat file.json | jq '%s'", path))
+		example := helpStyle.Render(fmt.Sprintf("Example: cat %s | jq '%s'", m.filename, path))
 		lines = append(lines, example)
 	}
 
