@@ -74,7 +74,7 @@ func (n *JSONNode) getValuePreview() string {
 func (n *JSONNode) getAllVisibleNodes() []*JSONNode {
 	var nodes []*JSONNode
 	var collectNodes func(*JSONNode)
-	
+
 	collectNodes = func(node *JSONNode) {
 		nodes = append(nodes, node)
 		if node.Expanded {
@@ -83,7 +83,7 @@ func (n *JSONNode) getAllVisibleNodes() []*JSONNode {
 			}
 		}
 	}
-	
+
 	collectNodes(n)
 	return nodes
 }
@@ -92,24 +92,24 @@ func (n *JSONNode) matchesSearch(term string) bool {
 	if term == "" {
 		return true
 	}
-	
+
 	termLower := strings.ToLower(term)
-	
+
 	// Check key
 	if strings.Contains(strings.ToLower(n.Key), termLower) {
 		return true
 	}
-	
+
 	// Check value preview
 	if strings.Contains(strings.ToLower(n.getValuePreview()), termLower) {
 		return true
 	}
-	
+
 	// Check type
 	if strings.Contains(strings.ToLower(n.Type), termLower) {
 		return true
 	}
-	
+
 	return false
 }
 
@@ -117,11 +117,11 @@ func (n *JSONNode) buildJqQuery() string {
 	if n.Parent == nil {
 		return "."
 	}
-	
+
 	// Build the path from root to this node
 	var pathParts []string
 	current := n
-	
+
 	for current.Parent != nil {
 		if current.Parent.Type == "array" {
 			pathParts = append([]string{fmt.Sprintf("[%s]", current.Key)}, pathParts...)
@@ -130,22 +130,23 @@ func (n *JSONNode) buildJqQuery() string {
 		}
 		current = current.Parent
 	}
-	
+
 	// Build the query
-	query := ""
+	query := "."
 	for _, part := range pathParts {
 		if strings.HasPrefix(part, "[") {
 			// Array access - append directly
 			query += part
 		} else {
 			// Object field access - add dot separator
-			if query == "" {
-				query = "." + part
-			} else {
-				query += "." + part
-			}
+			query += "." + part
 		}
 	}
-	
+
+	// Clean up leading double dot for object access
+	if strings.HasPrefix(query, "..") {
+		query = query[1:]
+	}
+
 	return query
 }

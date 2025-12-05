@@ -89,9 +89,69 @@ func TestBuildJqQuery(t *testing.T) {
 	}
 }
 
+func TestBuildJqQueryArrayRoot(t *testing.T) {
+	// Test JSON array as root
+	testJSON := `[{"name": "John"}, {"name": "Jane"}]`
+
+	var data interface{}
+	json.Unmarshal([]byte(testJSON), &data)
+	root := buildJSONTree(data, nil, "")
+
+	tests := []struct {
+		name     string
+		nodePath []string
+		expected string
+	}{
+		{
+			name:     "Root array",
+			nodePath: []string{},
+			expected: ".",
+		},
+		{
+			name:     "First element",
+			nodePath: []string{"0"},
+			expected: ".[0]",
+		},
+		{
+			name:     "First element name",
+			nodePath: []string{"0", "name"},
+			expected: ".[0].name",
+		},
+		{
+			name:     "Second element",
+			nodePath: []string{"1"},
+			expected: ".[1]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node := root
+			for _, key := range tt.nodePath {
+				found := false
+				for _, child := range node.Children {
+					if child.Key == key {
+						node = child
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("Node path not found: %v", tt.nodePath)
+				}
+			}
+
+			query := node.buildJqQuery()
+			if query != tt.expected {
+				t.Errorf("Expected query %s, got %s", tt.expected, query)
+			}
+		})
+	}
+}
+
 func TestNodeMatchesSearch(t *testing.T) {
 	testJSON := `{"users": [{"name": "John", "age": 30}]}`
-	
+
 	var data interface{}
 	json.Unmarshal([]byte(testJSON), &data)
 	root := buildJSONTree(data, nil, "")

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -74,8 +76,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	var jsonData interface{}
-	if err := json.Unmarshal(input, &jsonData); err != nil {
+	jsonData, err := parseJSON(input)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
 		os.Exit(1)
 	}
@@ -100,6 +102,46 @@ func main() {
 func isStdinAvailable() bool {
 	stat, _ := os.Stdin.Stat()
 	return (stat.Mode() & os.ModeCharDevice) == 0
+}
+
+// parseJSON tries to parse as regular JSON first, then as JSON Lines (NDJSON)
+func parseJSON(input []byte) (interface{}, error) {
+	// Try regular JSON first
+	var jsonData interface{}
+	if err := json.Unmarshal(input, &jsonData); err == nil {
+		return jsonData, nil
+	}
+
+	// Try JSON Lines (newline-delimited JSON)
+	var objects []interface{}
+	scanner := bufio.NewScanner(bytes.NewReader(input))
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue // Skip empty lines
+		}
+		var obj interface{}
+		if err := json.Unmarshal(line, &obj); err != nil {
+			return nil, fmt.Errorf("line %d: %v", lineNum, err)
+		}
+		objects = append(objects, obj)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(objects) == 0 {
+		return nil, fmt.Errorf("no valid JSON found")
+	}
+
+	// Return as array if multiple objects, single object if just one
+	if len(objects) == 1 {
+		return objects[0], nil
+	}
+	return objects, nil
 }
 
 func printVersion() {
@@ -134,8 +176,13 @@ Interactive Controls:
   Esc     Clear search/selection
   q       Quit
 
+Supported Formats:
+  - Standard JSON
+  - JSON Lines (NDJSON) - one JSON object per line
+
 Examples:
   cat api.json | jqpick
+  cat data.jsonl | jqpick              # JSON Lines
   echo '{"users":[{"name":"John"}]}' | jqpick
   curl -s https://api.example.com/data | jqpick
 `, Version)
