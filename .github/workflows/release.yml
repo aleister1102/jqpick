@@ -44,25 +44,16 @@ jobs:
           GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/${{ env.BINARY_NAME }}-windows-amd64.exe .
           GOOS=windows GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/${{ env.BINARY_NAME }}-windows-arm64.exe .
 
-      - name: Create archives
+      - name: Create checksums
         run: |
           cd dist
-          for f in ${{ env.BINARY_NAME }}-*; do
-            case "$f" in
-              *.exe) zip -q "${f%.exe}.zip" "$f" ;;
-              *) tar -czf "$f.tar.gz" "$f" ;;
-            esac
-          done
-          shasum -a 256 *.tar.gz *.zip > checksums.txt
+          shasum -a 256 * > checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           name: "${{ env.BINARY_NAME }} ${{ github.ref_name }}"
           generate_release_notes: true
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/checksums.txt
+          files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

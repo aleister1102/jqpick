@@ -36,7 +36,6 @@ clean: ## Clean build artifacts
 	@rm -f $(BINARY_NAME)
 	@rm -rf $(BUILD_DIR)
 
-# Release targets
 release: ## Release new version (usage: make release TAG=v1.0.0)
 	@if [ -z "$(TAG)" ]; then echo "Usage: make release TAG=v1.0.0"; exit 1; fi
 	@echo "Releasing $(TAG)..."
@@ -49,15 +48,11 @@ release: ## Release new version (usage: make release TAG=v1.0.0)
 	@GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
 	@GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe .
 	@GOOS=windows GOARCH=arm64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-arm64.exe .
-	@echo "Creating archives..."
-	@cd $(BUILD_DIR) && for f in $(BINARY_NAME)-*; do \
-		case "$$f" in *.exe) zip -q "$${f%.exe}.zip" "$$f";; *) tar -czf "$$f.tar.gz" "$$f";; esac; \
-	done
-	@cd $(BUILD_DIR) && shasum -a 256 *.tar.gz *.zip > checksums.txt
+	@cd $(BUILD_DIR) && shasum -a 256 * > checksums.txt
 	@echo "Creating GitHub release..."
 	@git tag -a $(TAG) -m "Release $(TAG)"
 	@git push origin $(TAG)
-	@gh release create $(TAG) $(BUILD_DIR)/*.tar.gz $(BUILD_DIR)/*.zip $(BUILD_DIR)/checksums.txt --title "$(BINARY_NAME) $(TAG)" --generate-notes
+	@gh release create $(TAG) $(BUILD_DIR)/* --title "$(BINARY_NAME) $(TAG)" --generate-notes
 	@echo "Done: $(TAG)"
 
 bump-patch: ## Release next patch version
