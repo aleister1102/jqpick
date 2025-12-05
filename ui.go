@@ -49,6 +49,7 @@ type keyMap struct {
 	Back     key.Binding
 	Quit     key.Binding
 	Help     key.Binding
+	Wrap     key.Binding
 }
 
 var keys = keyMap{
@@ -96,16 +97,21 @@ var keys = keyMap{
 		key.WithKeys("?"),
 		key.WithHelp("?", "help"),
 	),
+	Wrap: key.NewBinding(
+		key.WithKeys("w"),
+		key.WithHelp("w", "toggle wrap"),
+	),
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Select, k.Quit, k.Help}
+	return []key.Binding{k.Up, k.Down, k.Select, k.Wrap, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.Select, k.Search, k.Back, k.Quit},
+		{k.Wrap, k.Help},
 	}
 }
 
@@ -175,6 +181,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchMode = true
 		case key.Matches(msg, keys.Help):
 			m.showHelp = !m.showHelp
+		case key.Matches(msg, keys.Wrap):
+			m.wrapValues = !m.wrapValues
 		case msg.String() == "space":
 			visibleNodes := m.root.getAllVisibleNodes()
 			if m.cursor < len(visibleNodes) {
@@ -198,6 +206,21 @@ func (m model) View() string {
 		return m.renderHelp()
 	}
 
+	// Calculate heights for each section
+	titleHeight := 2 // title + margin
+	searchHeight := 0
+	if m.searchMode || m.searchTerm != "" {
+		searchHeight = 1
+	}
+	queryHeight := 0
+	if m.jqQuery != "" && m.selected != nil {
+		queryHeight = 4 // header + query + example + margin
+	}
+	helpHeight := 1
+
+	// Tree gets remaining height
+	treeHeight := m.height - titleHeight - searchHeight - queryHeight - helpHeight - 1
+
 	var sections []string
 
 	// Title
@@ -216,9 +239,12 @@ func (m model) View() string {
 		sections = append(sections, searchInfo)
 	}
 
-	// JSON Tree View
-	treeView := m.renderTreeView()
-	sections = append(sections, treeView)
+	// JSON Tree View with fixed height
+	treeView := m.renderTreeView(treeHeight)
+	treeStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Height(treeHeight)
+	sections = append(sections, treeStyle.Render(treeView))
 
 	// JQ Query Display
 	if m.jqQuery != "" && m.selected != nil {
@@ -226,33 +252,51 @@ func (m model) View() string {
 		sections = append(sections, querySection)
 	}
 
-	// Help line
-	help := helpStyle.Render("Press ? for help, q to quit")
+	// Help line with wrap indicator
+	wrapIndicator := ""
+	if m.wrapValues {
+		wrapIndicator = " [wrap: on]"
+	}
+	help := helpStyle.Render("Press ? for help, w to toggle wrap, q to quit" + wrapIndicator)
 	sections = append(sections, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
+
+	// Apply full terminal size
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height).
+		Render(content)
 }
 
-func (m model) renderTreeView() string {
+func (m model) renderTreeView(availableHeight int) string {
 	var visibleNodes []*JSONNode
 	if m.searchMode || m.searchTerm != "" {
 		visibleNodes = m.filtered
 	} else {
 		visibleNodes = m.root.getAllVisibleNodes()
 	}
-	
+
 	var lines []string
 	header := headerStyle.Render(fmt.Sprintf("JSON Structure (%d nodes)", len(visibleNodes)))
 	lines = append(lines, header)
 
-	// Calculate viewport
-	viewHeight := m.height - 10 // Reserve space for title, query, help
+	// Calculate viewport (subtract 1 for header)
+	viewHeight := availableHeight - 1
+	if viewHeight < 1 {
+		viewHeight = 10
+	}
+
 	startIdx := 0
 	endIdx := len(visibleNodes)
 
 	if len(visibleNodes) > viewHeight {
-		if m.cursor >= viewHeight {
+		// Keep cursor in view
+		if m.cursor >= startIdx+viewHeight {
 			startIdx = m.cursor - viewHeight + 1
+		}
+		if m.cursor < startIdx {
+			startIdx = m.cursor
 		}
 		endIdx = startIdx + viewHeight
 		if endIdx > len(visibleNodes) {
@@ -271,7 +315,8 @@ func (m model) renderTreeView() string {
 
 func (m model) renderNode(node *JSONNode, isSelected bool) string {
 	indent := m.getIndent(node)
-	
+	indentLen := len(indent)
+
 	// Build the display line
 	var parts []string
 	parts = append(parts, indent)
@@ -289,7 +334,9 @@ func (m model) renderNode(node *JSONNode, isSelected bool) string {
 
 	// Add key name
 	keyName := node.getDisplayName()
+	keyPartLen := 0
 	if node.Key != "" {
+		keyPartLen = len(keyName) + 1 // +1 for colon
 		parts = append(parts, keyStyle.Render(keyName+":"))
 	}
 
@@ -308,7 +355,7 @@ func (m model) renderNode(node *JSONNode, isSelected bool) string {
 	default:
 		styledValue = valuePreview
 	}
-	
+
 	if node.Key != "" {
 		parts = append(parts, " "+styledValue)
 	} else {
@@ -316,12 +363,72 @@ func (m model) renderNode(node *JSONNode, isSelected bool) string {
 	}
 
 	line := strings.Join(parts, "")
-	
+
+	// Apply word wrap if enabled
+	if m.wrapValues && m.width > 0 {
+		line = m.wrapLine(line, valuePreview, indentLen+1+keyPartLen+1, node.Type) // +1 for indicator, +1 for space
+	}
+
 	if isSelected {
 		return selectedStyle.Render(line)
 	}
-	
+
 	return line
+}
+
+func (m model) wrapLine(line string, value string, prefixLen int, nodeType string) string {
+	if m.width <= 0 || len(line) <= m.width {
+		return line
+	}
+
+	// Only wrap string values that are long
+	if nodeType != "string" || len(value) < 50 {
+		return line
+	}
+
+	// Calculate available width for value
+	availableWidth := m.width - prefixLen - 4 // some margin
+	if availableWidth < 20 {
+		return line
+	}
+
+	// Get the prefix (everything before the value)
+	valueStart := strings.Index(line, value)
+	if valueStart == -1 {
+		return line
+	}
+	prefix := line[:valueStart]
+	wrapIndent := strings.Repeat(" ", prefixLen)
+
+	// Wrap the value
+	var result strings.Builder
+	result.WriteString(prefix)
+
+	remaining := value
+	firstLine := true
+	for len(remaining) > 0 {
+		if !firstLine {
+			result.WriteString("\n")
+			result.WriteString(wrapIndent)
+		}
+		if len(remaining) <= availableWidth {
+			result.WriteString(remaining)
+			break
+		}
+		// Find a good break point
+		breakAt := availableWidth
+		for breakAt > 0 && remaining[breakAt] != ' ' {
+			breakAt--
+		}
+		if breakAt == 0 {
+			breakAt = availableWidth
+		}
+		result.WriteString(remaining[:breakAt])
+		remaining = strings.TrimLeft(remaining[breakAt:], " ")
+		firstLine = false
+	}
+
+	return result.String()
 }
 
 func (m *model) updateFilteredNodes() {
@@ -329,16 +436,16 @@ func (m *model) updateFilteredNodes() {
 		m.filtered = m.root.getAllVisibleNodes()
 		return
 	}
-	
+
 	var filtered []*JSONNode
 	allNodes := m.root.getAllVisibleNodes()
-	
+
 	for _, node := range allNodes {
 		if node.matchesSearch(m.searchTerm) {
 			filtered = append(filtered, node)
 		}
 	}
-	
+
 	m.filtered = filtered
 	// Adjust cursor if needed
 	if m.cursor >= len(m.filtered) && len(m.filtered) > 0 {
@@ -358,29 +465,29 @@ func (m model) getIndent(node *JSONNode) string {
 
 func (m model) renderQuerySection() string {
 	var lines []string
-	
+
 	header := headerStyle.Render("JQ Query")
 	lines = append(lines, header)
-	
+
 	if m.selected != nil {
 		path := m.selected.buildJqQuery()
 		query := queryStyle.Render(path)
 		lines = append(lines, query)
-		
+
 		// Add example usage
 		example := helpStyle.Render(fmt.Sprintf("Example: cat file.json | jq '%s'", path))
 		lines = append(lines, example)
 	}
-	
+
 	return strings.Join(lines, "\n")
 }
 
 func (m model) renderHelp() string {
 	var lines []string
-	
+
 	title := titleStyle.Render("JQPick Help")
 	lines = append(lines, title)
-	
+
 	// Navigation
 	lines = append(lines, headerStyle.Render("Navigation:"))
 	lines = append(lines, "  ↑/k     Move cursor up")
@@ -388,20 +495,21 @@ func (m model) renderHelp() string {
 	lines = append(lines, "  ←/h     Collapse current node")
 	lines = append(lines, "  →/l     Expand current node")
 	lines = append(lines, "  Space   Toggle expand/collapse")
-	
+
 	// Actions
 	lines = append(lines, headerStyle.Render("Actions:"))
 	lines = append(lines, "  Enter   Select node and show jq query")
 	lines = append(lines, "  /       Search (start typing)")
+	lines = append(lines, "  w       Toggle word wrap for long values")
 	lines = append(lines, "  Esc     Clear selection")
 	lines = append(lines, "  ?       Toggle this help")
 	lines = append(lines, "  q       Quit")
-	
+
 	// Examples
 	lines = append(lines, headerStyle.Render("Examples:"))
 	lines = append(lines, "  cat api.json | jqpick")
 	lines = append(lines, "  echo '{\"users\":[{\"name\":\"John\"}]}' | jqpick")
 	lines = append(lines, "  curl -s https://api.example.com/data | jqpick")
-	
+
 	return strings.Join(lines, "\n")
 }

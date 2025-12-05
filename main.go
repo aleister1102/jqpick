@@ -37,6 +37,7 @@ type model struct {
 	searchMode bool
 	searchTerm string
 	filtered   []*JSONNode
+	wrapValues bool
 }
 
 func main() {
@@ -72,7 +73,7 @@ func main() {
 	}
 
 	root := buildJSONTree(jsonData, nil, "")
-	
+
 	p := tea.NewProgram(
 		model{
 			root:   root,
