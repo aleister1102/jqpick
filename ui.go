@@ -246,6 +246,74 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case tea.MouseMsg:
+		titleHeight := 2
+		searchHeight := 0
+		if m.searchMode || m.searchTerm != "" {
+			searchHeight = 1
+		}
+		queryHeight := 0
+		if m.jqQuery != "" && m.selected != nil {
+			queryHeight = 4
+		}
+		helpHeight := 2
+		treeHeight := m.height - titleHeight - searchHeight - queryHeight - helpHeight - 1
+
+		treeStartY := titleHeight + searchHeight
+		if msg.Y >= treeStartY && msg.Y < treeStartY+treeHeight {
+			visibleNodes := m.root.getAllVisibleNodes()
+			viewHeight := treeHeight - 1
+			startIdx := 0
+			endIdx := len(visibleNodes)
+			if len(visibleNodes) > viewHeight {
+				if m.cursor >= startIdx+viewHeight {
+					startIdx = m.cursor - viewHeight + 1
+				}
+				if m.cursor < startIdx {
+					startIdx = m.cursor
+				}
+				endIdx = startIdx + viewHeight
+				if endIdx > len(visibleNodes) {
+					endIdx = len(visibleNodes)
+				}
+			}
+
+			rel := msg.Y - treeStartY
+			if rel > 0 {
+				idx := startIdx + (rel - 1)
+				if idx < 0 {
+					idx = 0
+				}
+				if idx >= len(visibleNodes) {
+					idx = len(visibleNodes) - 1
+				}
+
+				switch msg.Type {
+				case tea.MouseLeft:
+					m.cursor = idx
+					if idx >= 0 && idx < len(visibleNodes) {
+						m.selected = visibleNodes[idx]
+						m.jqQuery = m.selected.buildJqQuery()
+					}
+				case tea.MouseRight:
+					if idx >= 0 && idx < len(visibleNodes) {
+						node := visibleNodes[idx]
+						if node.Type == "object" || node.Type == "array" {
+							node.Expanded = !node.Expanded
+						}
+					}
+				case tea.MouseWheelUp:
+					if m.cursor > 0 {
+						m.cursor--
+					}
+				case tea.MouseWheelDown:
+					if m.cursor < len(visibleNodes)-1 {
+						m.cursor++
+					}
+				}
+			}
+		}
+
 	case tea.WindowSizeMsg:
 		m.height = msg.Height
 		m.width = msg.Width
@@ -269,7 +337,7 @@ func (m model) View() string {
 	if m.jqQuery != "" && m.selected != nil {
 		queryHeight = 4 // header + query + example + margin
 	}
-	helpHeight := 1
+	helpHeight := 2
 
 	// Tree gets remaining height
 	treeHeight := m.height - titleHeight - searchHeight - queryHeight - helpHeight - 1
@@ -305,18 +373,20 @@ func (m model) View() string {
 		sections = append(sections, querySection)
 	}
 
-	// Help line
-	var help string
+	// Help menu (multi-line)
+	var helpLines []string
 	if m.searchMode {
-		help = helpStyle.Render("↑/↓ navigate • Esc exit search")
+		helpLines = append(helpLines, helpStyle.Render("↑/↓ navigate • type to search"))
+		helpLines = append(helpLines, helpStyle.Render("Esc exit search • Enter exit"))
 	} else {
 		wrapIndicator := ""
 		if m.wrapValues {
 			wrapIndicator = " [wrap: on]"
 		}
-		help = helpStyle.Render("Enter select • y copy • ? help • w wrap • / search • q quit" + wrapIndicator)
+		helpLines = append(helpLines, helpStyle.Render("Mouse: click select • right-click toggle • scroll"))
+		helpLines = append(helpLines, helpStyle.Render("Enter select • y copy • ? help • w wrap • / search • q quit"+wrapIndicator))
 	}
-	sections = append(sections, help)
+	sections = append(sections, lipgloss.JoinVertical(lipgloss.Left, helpLines...))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
@@ -641,6 +711,12 @@ func (m model) renderHelp() string {
 	lines = append(lines, "  Esc     Clear selection")
 	lines = append(lines, "  ?       Toggle this help")
 	lines = append(lines, "  q       Quit")
+
+	// Mouse
+	lines = append(lines, headerStyle.Render("Mouse:"))
+	lines = append(lines, "  Click   Select node")
+	lines = append(lines, "  Right   Toggle expand/collapse on object/array")
+	lines = append(lines, "  Wheel   Scroll up/down")
 
 	// Examples
 	lines = append(lines, headerStyle.Render("Examples:"))

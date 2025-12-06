@@ -91,6 +91,7 @@ func main() {
 			filename: filename,
 		},
 		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
 	)
 
 	if _, err := p.Run(); err != nil {
