@@ -47,7 +47,7 @@ release: ## Release new version (usage: make release TAG=v1.0.0)
 	@GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .
 	@GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
 	@GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe .
-	@GOOS=windows GOARCH=arm64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s - w" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-arm64.exe .
+	@GOOS=windows GOARCH=arm64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-arm64.exe .
 	@cd $(BUILD_DIR) && shasum -a 256 * > checksums.txt
 	@echo "Tagging and creating/updating GitHub release..."
 	@# Tag handling
