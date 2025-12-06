@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
+	osc52 "github.com/aymanbagabas/go-osc52/v2"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -49,6 +51,7 @@ type keyMap struct {
 	Expand   key.Binding
 	Collapse key.Binding
 	Select   key.Binding
+	Copy     key.Binding
 	Search   key.Binding
 	Back     key.Binding
 	Quit     key.Binding
@@ -93,6 +96,10 @@ var keys = keyMap{
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "select"),
 	),
+	Copy: key.NewBinding(
+		key.WithKeys("y"),
+		key.WithHelp("y", "copy jq query"),
+	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),
 		key.WithHelp("/", "search"),
@@ -116,13 +123,13 @@ var keys = keyMap{
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Select, k.Wrap, k.Quit, k.Help}
+	return []key.Binding{k.Up, k.Down, k.Select, k.Copy, k.Wrap, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
-		{k.Select, k.Search, k.Back, k.Quit},
+		{k.Select, k.Copy, k.Search, k.Back, k.Quit},
 		{k.Wrap, k.Help},
 	}
 }
@@ -217,6 +224,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = visibleNodes[m.cursor]
 				m.jqQuery = m.selected.buildJqQuery()
 			}
+		case key.Matches(msg, keys.Copy):
+			if m.selected != nil {
+				query := m.selected.buildJqQuery()
+				m.jqQuery = query
+				_, _ = fmt.Fprint(os.Stderr, osc52.New(query))
+			}
 		case key.Matches(msg, keys.Search):
 			m.searchMode = true
 		case key.Matches(msg, keys.Help):
@@ -301,7 +314,7 @@ func (m model) View() string {
 		if m.wrapValues {
 			wrapIndicator = " [wrap: on]"
 		}
-		help = helpStyle.Render("Enter select • ? help • w wrap • / search • q quit" + wrapIndicator)
+		help = helpStyle.Render("Enter select • y copy • ? help • w wrap • / search • q quit" + wrapIndicator)
 	}
 	sections = append(sections, help)
 
@@ -622,6 +635,7 @@ func (m model) renderHelp() string {
 	// Actions
 	lines = append(lines, headerStyle.Render("Actions:"))
 	lines = append(lines, "  Enter   Select node and show jq query")
+	lines = append(lines, "  y       Copy jq query to clipboard")
 	lines = append(lines, "  /       Search (start typing)")
 	lines = append(lines, "  w       Toggle word wrap for long values")
 	lines = append(lines, "  Esc     Clear selection")
