@@ -47,12 +47,24 @@ release: ## Release new version (usage: make release TAG=v1.0.0)
 	@GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .
 	@GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
 	@GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe .
-	@GOOS=windows GOARCH=arm64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-arm64.exe .
+	@GOOS=windows GOARCH=arm64 go build -ldflags "-X main.Version=$(TAG) -X main.Commit=$(COMMIT) -X main.Date=$(DATE) -s - w" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-arm64.exe .
 	@cd $(BUILD_DIR) && shasum -a 256 * > checksums.txt
-	@echo "Creating GitHub release..."
-	@git tag -a $(TAG) -m "Release $(TAG)"
-	@git push origin $(TAG)
-	@gh release create $(TAG) $(BUILD_DIR)/* --title "$(BINARY_NAME) $(TAG)" --generate-notes
+	@echo "Tagging and creating/updating GitHub release..."
+	@# Tag handling
+	@if git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null; then \
+			echo "Tag $(TAG) already exists"; \
+			git push origin $(TAG) >/dev/null 2>&1 || true; \
+		else \
+			git tag -a $(TAG) -m "Release $(TAG)"; \
+			git push origin $(TAG); \
+		fi
+	@# Release handling
+	@if gh release view $(TAG) >/dev/null 2>&1; then \
+			echo "Release $(TAG) already exists; uploading assets"; \
+			gh release upload $(TAG) $(BUILD_DIR)/* --clobber; \
+		else \
+			gh release create $(TAG) $(BUILD_DIR)/* --title "$(BINARY_NAME) $(TAG)" --generate-notes; \
+		fi
 	@echo "Done: $(TAG)"
 
 bump-patch: ## Release next patch version
